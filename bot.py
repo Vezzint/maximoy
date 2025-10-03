@@ -5,7 +5,7 @@ import datetime
 import random
 from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -265,7 +265,7 @@ class MaximoyBot:
         ]
         logger.info("🤖 Maximoy Bot initialized")
 
-    def start(self, update: Update, context: CallbackContext):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         welcome_text = f"""
 🌟 **Добро пожаловать в Maximoy, {user.first_name}!**
@@ -310,9 +310,9 @@ class MaximoyBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-    def dashboard(self, update: Update, context: CallbackContext):
+    async def dashboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         
@@ -365,11 +365,11 @@ class MaximoyBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
-    def add_habit(self, update: Update, context: CallbackContext):
+    async def add_habit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "🎯 **Добавление привычки**\n\n"
                 "Формат: /add_habit <название> | <описание> | <категория> | <сложность>\n\n"
                 "**Категории:** здоровье, учеба, работа, спорт, творчество\n"
@@ -392,7 +392,7 @@ class MaximoyBot:
         
         habit_id = self.db.add_habit(update.effective_user.id, name, description, category, difficulty)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ **Привычка добавлена!**\n\n"
             f"**Название:** {name}\n"
             f"**Описание:** {description if description else 'Не указано'}\n"
@@ -402,9 +402,9 @@ class MaximoyBot:
             parse_mode='Markdown'
         )
 
-    def add_task(self, update: Update, context: CallbackContext):
+    async def add_task(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "✅ **Добавление задачи**\n\n"
                 "Формат: /add_task <название> | <описание> | <приоритет> | <срок>\n\n"
                 "**Приоритет:** высокий, средний, низкий\n"
@@ -433,7 +433,7 @@ class MaximoyBot:
         
         task_id = self.db.add_task(update.effective_user.id, title, description, priority, due_date)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ **Задача добавлена!**\n\n"
             f"**Название:** {title}\n"
             f"**Описание:** {description if description else 'Не указано'}\n"
@@ -443,9 +443,9 @@ class MaximoyBot:
             parse_mode='Markdown'
         )
 
-    def add_note(self, update: Update, context: CallbackContext):
+    async def add_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "📝 **Добавление заметки**\n\n"
                 "Формат: /add_note <заголовок> | <текст> | <категория>\n\n"
                 "**Категории:** идеи, мысли, задачи, ссылки, личное\n\n"
@@ -466,7 +466,7 @@ class MaximoyBot:
         
         note_id = self.db.add_note(update.effective_user.id, title, content, category)
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"📝 **Заметка сохранена!**\n\n"
             f"**Заголовок:** {title}\n"
             f"**Категория:** {category}\n"
@@ -475,7 +475,7 @@ class MaximoyBot:
             parse_mode='Markdown'
         )
 
-    def stats(self, update: Update, context: CallbackContext):
+    async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         
         habits = self.db.get_user_habits(user_id)
@@ -523,16 +523,16 @@ class MaximoyBot:
             quote = random.choice(self.motivational_quotes)
             text += f"💫 *{quote}*"
         
-        update.message.reply_text(text, parse_mode='Markdown')
+        await update.message.reply_text(text, parse_mode='Markdown')
 
-    def button_handler(self, update: Update, context: CallbackContext):
+    async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        query.answer()
+        await query.answer()
         
         if query.data == "dashboard":
-            self.dashboard(query, context)
+            await self.dashboard(query, context)
         elif query.data == "show_stats":
-            self.stats(query, context)
+            await self.stats(query, context)
         elif query.data == "quick_add":
             keyboard = [
                 [InlineKeyboardButton("🎯 Привычка", callback_data="quick_habit")],
@@ -541,7 +541,7 @@ class MaximoyBot:
                 [InlineKeyboardButton("📊 Назад", callback_data="dashboard")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🚀 **Быстрое добавление**\n\nВыберите что хотите добавить:",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
@@ -558,24 +558,22 @@ class MaximoyBot:
             logger.error("❌ TELEGRAM_BOT_TOKEN not found!")
             return
         
-        updater = Updater(self.token, use_context=True)
-        dispatcher = updater.dispatcher
+        application = Application.builder().token(self.token).build()
         
         # Команды
-        dispatcher.add_handler(CommandHandler("start", self.start))
-        dispatcher.add_handler(CommandHandler("dashboard", self.dashboard))
-        dispatcher.add_handler(CommandHandler("add_habit", self.add_habit))
-        dispatcher.add_handler(CommandHandler("add_task", self.add_task))
-        dispatcher.add_handler(CommandHandler("add_note", self.add_note))
-        dispatcher.add_handler(CommandHandler("stats", self.stats))
-        dispatcher.add_handler(CommandHandler("help", self.start))
+        application.add_handler(CommandHandler("start", self.start))
+        application.add_handler(CommandHandler("dashboard", self.dashboard))
+        application.add_handler(CommandHandler("add_habit", self.add_habit))
+        application.add_handler(CommandHandler("add_task", self.add_task))
+        application.add_handler(CommandHandler("add_note", self.add_note))
+        application.add_handler(CommandHandler("stats", self.stats))
+        application.add_handler(CommandHandler("help", self.start))
         
         # Обработчики кнопок
-        dispatcher.add_handler(CallbackQueryHandler(self.button_handler))
+        application.add_handler(CallbackQueryHandler(self.button_handler))
         
         logger.info("🚀 Starting Maximoy Bot...")
-        updater.start_polling()
-        updater.idle()
+        application.run_polling()
 
 if __name__ == "__main__":
     bot = MaximoyBot()
