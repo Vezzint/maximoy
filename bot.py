@@ -255,7 +255,14 @@ class MaximoyBot:
         await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='MarkdownV2')
 
     async def dashboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
+        # Получаем user_id в зависимости от типа update
+        if hasattr(update, 'message') and update.message:
+            user_id = update.effective_user.id
+            message = update.message
+        else:
+            user_id = update.callback_query.from_user.id
+            message = update.callback_query.message
+            
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         
         # Получаем данные
@@ -308,7 +315,11 @@ class MaximoyBot:
         ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
     async def add_habit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -497,30 +508,196 @@ class MaximoyBot:
         await query.answer()
         
         data = query.data
+        user_id = query.from_user.id
         
-        if data == "dashboard":
-            await self.dashboard(query, context)
-        elif data == "show_stats":
-            await self.stats(query, context)
-        elif data == "quick_add":
-            keyboard = [
-                [InlineKeyboardButton("🎯 Привычка", callback_data="quick_habit")],
-                [InlineKeyboardButton("✅ Задача", callback_data="quick_task")],
-                [InlineKeyboardButton("📝 Заметка", callback_data="quick_note")],
-                [InlineKeyboardButton("📊 Назад", callback_data="dashboard")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "🚀 *Быстрое добавление*\n\nВыберите что хотите добавить:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        elif data.startswith("mark_habit:"):
-            habit_id = data.split(":")[1]
-            self.storage.mark_habit_done(habit_id)
-            await query.edit_message_text("✅ Привычка отмечена как выполненная! 🎉", parse_mode='Markdown')
-        elif data == "celebrate":
-            await query.edit_message_text("🎉 Отлично! Все привычки на сегодня выполнены! Ты просто супер! 🌟", parse_mode='Markdown')
+        logger.info(f"🔘 Button pressed by {user_id}: {data}")
+        
+        try:
+            if data == "dashboard":
+                await self._send_dashboard(query)
+            elif data == "show_stats":
+                await self._send_stats(query)
+            elif data == "quick_add":
+                await self._show_quick_add_menu(query)
+            elif data.startswith("mark_habit:"):
+                habit_id = data.split(":")[1]
+                self.storage.mark_habit_done(habit_id)
+                await query.edit_message_text("✅ Привычка отмечена как выполненная! 🎉", parse_mode='Markdown')
+            elif data == "celebrate":
+                await query.edit_message_text("🎉 Отлично! Все привычки на сегодня выполнены! Ты просто супер! 🌟", parse_mode='Markdown')
+            elif data == "quick_add_habit":
+                await query.edit_message_text(
+                    "🎯 *Добавление привычки*\n\n"
+                    "Используйте команду:\n"
+                    "`/add_habit <название> | <описание> | <категория> | <сложность>`\n\n"
+                    "*Пример:*\n"
+                    "`/add_habit Утренняя зарядка | 15 минут утром | здоровье | легкая`",
+                    parse_mode='Markdown'
+                )
+            elif data == "quick_add_task":
+                await query.edit_message_text(
+                    "✅ *Добавление задачи*\n\n"
+                    "Используйте команду:\n"
+                    "`/add_task <название> | <описание> | <приоритет> | <срок>`\n\n"
+                    "*Пример:*\n"
+                    "`/add_task Сделать презентацию | Слайды 1-10 | высокий | сегодня`",
+                    parse_mode='Markdown'
+                )
+            elif data == "quick_note":
+                await query.edit_message_text(
+                    "📝 *Добавление заметки*\n\n"
+                    "Используйте команду:\n"
+                    "`/add_note <заголовок> | <текст> | <категория>`\n\n"
+                    "*Пример:*\n"
+                    "`/add_note Идея проекта | Создать бота для финансов | идеи`",
+                    parse_mode='Markdown'
+                )
+            elif data == "show_tasks":
+                await self._show_tasks(query)
+                
+        except Exception as e:
+            logger.error(f"❌ Button handler error: {e}")
+            await query.edit_message_text("❌ Произошла ошибка. Попробуйте еще раз.")
+
+    async def _send_dashboard(self, query):
+        """Отправка дашборда для callback query"""
+        user_id = query.from_user.id
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        habits = self.storage.get_user_habits(user_id)
+        tasks = self.storage.get_user_tasks(user_id, completed=False)
+        
+        text = f"📊 *Дашборд Maximoy* • {today}\n\n"
+        
+        # Прогресс привычек за сегодня
+        completed_today = 0
+        total_habits = len(habits)
+        
+        for habit_id, habit in habits:
+            if today in habit.get("progress", {}) and habit["progress"][today].get("completed"):
+                completed_today += 1
+        
+        habit_percentage = (completed_today / total_habits * 100) if total_habits > 0 else 0
+        
+        text += f"🎯 *Привычки сегодня:* {completed_today}/{total_habits}\n"
+        text += f"{self._create_progress_bar(habit_percentage)} {habit_percentage:.0f}%\n\n"
+        
+        # Активные задачи
+        high_priority = sum(1 for task_id, task in tasks if task["priority"] == 'high')
+        medium_priority = sum(1 for task_id, task in tasks if task["priority"] == 'medium')
+        low_priority = sum(1 for task_id, task in tasks if task["priority"] == 'low')
+        
+        text += f"✅ *Активные задачи:* {len(tasks)}\n"
+        text += f"   🔴 Высокий: {high_priority} | 🟡 Средний: {medium_priority} | 🟢 Низкий: {low_priority}\n\n"
+        
+        # Мотивационная цитата
+        quote = random.choice(self.motivational_quotes)
+        text += f"💫 *{quote}*"
+        
+        # Кнопки
+        keyboard = []
+        for habit_id, habit in habits[:3]:
+            if today not in habit.get("progress", {}) or not habit["progress"][today].get("completed"):
+                keyboard.append([InlineKeyboardButton(f"✅ {habit['name']}", callback_data=f"mark_habit:{habit_id}")])
+        
+        if not keyboard and habits:
+            keyboard.append([InlineKeyboardButton("🎉 Все привычки выполнены!", callback_data="celebrate")])
+        
+        keyboard.extend([
+            [InlineKeyboardButton("📋 Список задач", callback_data="show_tasks")],
+            [InlineKeyboardButton("📈 Статистика", callback_data="show_stats")],
+            [InlineKeyboardButton("🎯 Добавить новое", callback_data="quick_add")]
+        ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    async def _send_stats(self, query):
+        """Отправка статистики для callback query"""
+        user_id = query.from_user.id
+        
+        habits = self.storage.get_user_habits(user_id)
+        tasks = self.storage.get_user_tasks(user_id)
+        notes = self.storage.get_user_notes(user_id)
+        
+        text = "📈 *Статистика Maximoy*\n\n"
+        
+        if habits:
+            total_streak = sum(habit[1]["streak"] for habit in habits)
+            best_streak = max((habit[1]["best_streak"] for habit in habits), default=0)
+            
+            text += "*🎯 Привычки:*\n"
+            text += f"• Всего привычек: {len(habits)}\n"
+            text += f"• Общий стрик: {total_streak} дней\n"
+            text += f"• Лучший стрик: {best_streak} дней\n\n"
+        
+        if tasks:
+            completed_tasks = sum(1 for task_id, task in tasks if task["completed"])
+            total_tasks = len(tasks)
+            
+            text += "*✅ Задачи:*\n"
+            text += f"• Всего задач: {total_tasks}\n"
+            text += f"• Выполнено: {completed_tasks}\n"
+            text += f"• Прогресс: {(completed_tasks/total_tasks*100) if total_tasks > 0 else 0:.1f}%\n\n"
+        
+        if notes:
+            categories = {}
+            for note_id, note in notes:
+                cat = note["category"]
+                categories[cat] = categories.get(cat, 0) + 1
+            
+            text += "*📝 Заметки:*\n"
+            text += f"• Всего заметок: {len(notes)}\n"
+            text += f"• Категории: {', '.join(categories.keys())}\n\n"
+        
+        if not habits and not tasks and not notes:
+            text += "*📊 Данных пока нет*\n\n"
+            text += "Начните добавлять привычки, задачи и заметки!"
+        else:
+            quote = random.choice(self.motivational_quotes)
+            text += f"💫 *{quote}*"
+        
+        keyboard = [[InlineKeyboardButton("📊 Назад к дашборду", callback_data="dashboard")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    async def _show_quick_add_menu(self, query):
+        """Показать меню быстрого добавления"""
+        keyboard = [
+            [InlineKeyboardButton("🎯 Привычка", callback_data="quick_add_habit")],
+            [InlineKeyboardButton("✅ Задача", callback_data="quick_add_task")],
+            [InlineKeyboardButton("📝 Заметка", callback_data="quick_note")],
+            [InlineKeyboardButton("📊 Назад к дашборду", callback_data="dashboard")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "🚀 *Быстрое добавление*\n\nВыберите что хотите добавить:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    async def _show_tasks(self, query):
+        """Показать список задач"""
+        user_id = query.from_user.id
+        tasks = self.storage.get_user_tasks(user_id, completed=False)
+        
+        if not tasks:
+            text = "✅ *Нет активных задач*\n\nДобавьте задачу командой /add_task"
+        else:
+            text = "✅ *Активные задачи:*\n\n"
+            for i, (task_id, task) in enumerate(tasks[:5], 1):
+                priority_icon = "🔴" if task["priority"] == "high" else "🟡" if task["priority"] == "medium" else "🟢"
+                due_text = f" (до {task['due_date']})" if task["due_date"] else ""
+                text += f"{i}. {priority_icon} {task['title']}{due_text}\n"
+                if task["description"]:
+                    text += f"   📝 {task['description']}\n"
+        
+        keyboard = [[InlineKeyboardButton("📊 Назад к дашборду", callback_data="dashboard")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
     def _create_progress_bar(self, percentage, length=10):
         """Создает текстовый прогресс-бар"""
