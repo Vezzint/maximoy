@@ -208,41 +208,42 @@ class MaximoyBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        welcome_text = f"""
-🌟 **Добро пожаловать в Maximoy, {user.first_name}!**
+        logger.info(f"👤 Start command from user {user.id}")
+        
+        welcome_text = f"""🌟 *Добро пожаловать в Maximoy, {user.first_name}\!*
 
-Я твой персональный ассистент для управления привычками, задачами и заметками!
+Я твой персональный ассистент для управления привычками, задачами и заметками\!
 
-📊 **Мои возможности:**
+*📊 Мои возможности:*
 
-🎯 **Привычки**
+*🎯 Привычки*
 • Отслеживание ежедневных привычек
 • Статистика и стрики
 • Категории и уровни сложности
 
-✅ **Задачи** 
+*✅ Задачи* 
 • Управление задачами с приоритетами
 • Напоминания о дедлайнах
 • Прогресс выполнения
 
-📝 **Заметки**
+*📝 Заметки*
 • Быстрые заметки по категориям
 • Поиск и организация
 
-📈 **Аналитика**
+*📈 Аналитика*
 • Подробная статистика
 • Визуализация прогресса
 
-🚀 **Основные команды:**
-/add_habit - Добавить привычку
-/add_task - Добавить задачу  
-/add_note - Добавить заметку
-/dashboard - Обзор дня
-/stats - Статистика
-/help - Помощь
+*🚀 Основные команды:*
+/add\_habit \- Добавить привычку
+/add\_task \- Добавить задачу  
+/add\_note \- Добавить заметку
+/dashboard \- Обзор дня
+/stats \- Статистика
+/help \- Помощь
 
-**Maximoy поможет тебе стать продуктивнее каждый день!** ✨
-        """
+*Maximoy поможет тебе стать продуктивнее каждый день\!* ✨"""
+        
         keyboard = [
             [InlineKeyboardButton("🎯 Добавить привычку", callback_data="quick_add_habit")],
             [InlineKeyboardButton("✅ Добавить задачу", callback_data="quick_add_task")],
@@ -251,7 +252,7 @@ class MaximoyBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='MarkdownV2')
 
     async def dashboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
@@ -261,7 +262,7 @@ class MaximoyBot:
         habits = self.storage.get_user_habits(user_id)
         tasks = self.storage.get_user_tasks(user_id, completed=False)
         
-        text = f"📊 **Дашборд Maximoy** • {today}\n\n"
+        text = f"📊 *Дашборд Maximoy* • {today}\n\n"
         
         # Прогресс привычек за сегодня
         completed_today = 0
@@ -273,7 +274,7 @@ class MaximoyBot:
         
         habit_percentage = (completed_today / total_habits * 100) if total_habits > 0 else 0
         
-        text += f"🎯 **Привычки сегодня:** {completed_today}/{total_habits}\n"
+        text += f"🎯 *Привычки сегодня:* {completed_today}/{total_habits}\n"
         text += f"{self._create_progress_bar(habit_percentage)} {habit_percentage:.0f}%\n\n"
         
         # Активные задачи
@@ -281,7 +282,7 @@ class MaximoyBot:
         medium_priority = sum(1 for task_id, task in tasks if task["priority"] == 'medium')
         low_priority = sum(1 for task_id, task in tasks if task["priority"] == 'low')
         
-        text += f"✅ **Активные задачи:** {len(tasks)}\n"
+        text += f"✅ *Активные задачи:* {len(tasks)}\n"
         text += f"   🔴 Высокий: {high_priority} | 🟡 Средний: {medium_priority} | 🟢 Низкий: {low_priority}\n\n"
         
         # Мотивационная цитата
@@ -297,7 +298,7 @@ class MaximoyBot:
                     callback_data=f"mark_habit:{habit_id}"
                 )])
         
-        if not keyboard:
+        if not keyboard and habits:
             keyboard.append([InlineKeyboardButton("🎉 Все привычки выполнены!", callback_data="celebrate")])
         
         keyboard.extend([
@@ -312,11 +313,11 @@ class MaximoyBot:
     async def add_habit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
             await update.message.reply_text(
-                "🎯 **Добавление привычки**\n\n"
-                "Формат: /add_habit <название> | <описание> | <категория> | <сложность>\n\n"
-                "**Категории:** здоровье, учеба, работа, спорт, творчество\n"
-                "**Сложность:** легкая, средняя, сложная\n\n"
-                "**Примеры:**\n"
+                "🎯 *Добавление привычки*\n\n"
+                "Формат: /add\_habit <название> | <описание> | <категория> | <сложность>\n\n"
+                "*Категории:* здоровье, учеба, работа, спорт, творчество\n"
+                "*Сложность:* легкая, средняя, сложная\n\n"
+                "*Примеры:*\n"
                 "• `/add_habit Утренняя зарядка`\n"
                 "• `/add_habit Чтение | Читать 30 минут | учеба | средняя`\n"
                 "• `/add_habit Медитация | 10 минут утром | здоровье | легкая`",
@@ -335,27 +336,27 @@ class MaximoyBot:
         habit_id = self.storage.add_habit(update.effective_user.id, name, description, category, difficulty)
         
         await update.message.reply_text(
-            f"✅ **Привычка добавлена!**\n\n"
-            f"**Название:** {name}\n"
-            f"**Описание:** {description if description else 'Не указано'}\n"
-            f"**Категория:** {category}\n"
-            f"**Сложность:** {difficulty}\n\n"
-            f"Теперь отмечайте выполнение каждый день! 🎯",
-            parse_mode='Markdown'
+            f"✅ *Привычка добавлена\!*\n\n"
+            f"*Название:* {name}\n"
+            f"*Описание:* {description if description else 'Не указано'}\n"
+            f"*Категория:* {category}\n"
+            f"*Сложность:* {difficulty}\n\n"
+            f"Теперь отмечайте выполнение каждый день\! 🎯",
+            parse_mode='MarkdownV2'
         )
 
     async def add_task(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
             await update.message.reply_text(
-                "✅ **Добавление задачи**\n\n"
-                "Формат: /add_task <название> | <описание> | <приоритет> | <срок>\n\n"
-                "**Приоритет:** высокий, средний, низкий\n"
-                "**Срок:** ГГГГ-ММ-ДД или 'сегодня', 'завтра'\n\n"
-                "**Примеры:**\n"
+                "✅ *Добавление задачи*\n\n"
+                "Формат: /add\_task <название> | <описание> | <приоритет> | <срок>\n\n"
+                "*Приоритет:* высокий, средний, низкий\n"
+                "*Срок:* ГГГГ\-ММ\-ДД или 'сегодня', 'завтра'\n\n"
+                "*Примеры:*\n"
                 "• `/add_task Сделать презентацию`\n"
                 "• `/add_task Заказать продукты | Молоко, хлеб | высокий | сегодня`\n"
-                "• `/add_task Прочитать книгу | 50 страниц | средний | 2024-12-31`",
-                parse_mode='Markdown'
+                "• `/add_task Прочитать книгу | 50 страниц | средний | 2024\-12\-31`",
+                parse_mode='MarkdownV2'
             )
             return
         
@@ -376,26 +377,26 @@ class MaximoyBot:
         task_id = self.storage.add_task(update.effective_user.id, title, description, priority, due_date)
         
         await update.message.reply_text(
-            f"✅ **Задача добавлена!**\n\n"
-            f"**Название:** {title}\n"
-            f"**Описание:** {description if description else 'Не указано'}\n"
-            f"**Приоритет:** {priority}\n"
-            f"**Срок:** {due_date if due_date else 'Не установлен'}\n\n"
-            f"Не забудьте выполнить в срок! ⏰",
-            parse_mode='Markdown'
+            f"✅ *Задача добавлена\!*\n\n"
+            f"*Название:* {title}\n"
+            f"*Описание:* {description if description else 'Не указано'}\n"
+            f"*Приоритет:* {priority}\n"
+            f"*Срок:* {due_date if due_date else 'Не установлен'}\n\n"
+            f"Не забудьте выполнить в срок\! ⏰",
+            parse_mode='MarkdownV2'
         )
 
     async def add_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
             await update.message.reply_text(
-                "📝 **Добавление заметки**\n\n"
-                "Формат: /add_note <заголовок> | <текст> | <категория>\n\n"
-                "**Категории:** идеи, мысли, задачи, ссылки, личное\n\n"
-                "**Примеры:**\n"
+                "📝 *Добавление заметки*\n\n"
+                "Формат: /add\_note <заголовок> | <текст> | <категория>\n\n"
+                "*Категории:* идеи, мысли, задачи, ссылки, личное\n\n"
+                "*Примеры:*\n"
                 "• `/add_note Идея для проекта | Создать бота для финансов`\n"
                 "• `/add_note Мысли | Нужно больше спорта | здоровье`\n"
-                "• `/add_note Ссылка | https://example.com | ссылки`",
-                parse_mode='Markdown'
+                "• `/add_note Ссылка | https://example\.com | ссылки`",
+                parse_mode='MarkdownV2'
             )
             return
         
@@ -409,12 +410,12 @@ class MaximoyBot:
         note_id = self.storage.add_note(update.effective_user.id, title, content, category)
         
         await update.message.reply_text(
-            f"📝 **Заметка сохранена!**\n\n"
-            f"**Заголовок:** {title}\n"
-            f"**Категория:** {category}\n"
-            f"**Содержание:** {content if content else 'Пусто'}\n\n"
-            f"Заметка успешно сохранена! 💾",
-            parse_mode='Markdown'
+            f"📝 *Заметка сохранена\!*\n\n"
+            f"*Заголовок:* {title}\n"
+            f"*Категория:* {category}\n"
+            f"*Содержание:* {content if content else 'Пусто'}\n\n"
+            f"Заметка успешно сохранена\! 💾",
+            parse_mode='MarkdownV2'
         )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -424,14 +425,14 @@ class MaximoyBot:
         tasks = self.storage.get_user_tasks(user_id)
         notes = self.storage.get_user_notes(user_id)
         
-        text = "📈 **Статистика Maximoy**\n\n"
+        text = "📈 *Статистика Maximoy*\n\n"
         
         # Статистика привычек
         if habits:
             total_streak = sum(habit[1]["streak"] for habit in habits)
             best_streak = max((habit[1]["best_streak"] for habit in habits), default=0)
             
-            text += "🎯 **Привычки:**\n"
+            text += "*🎯 Привычки:*\n"
             text += f"• Всего привычек: {len(habits)}\n"
             text += f"• Общий стрик: {total_streak} дней\n"
             text += f"• Лучший стрик: {best_streak} дней\n\n"
@@ -441,7 +442,7 @@ class MaximoyBot:
             completed_tasks = sum(1 for task_id, task in tasks if task["completed"])
             total_tasks = len(tasks)
             
-            text += "✅ **Задачи:**\n"
+            text += "*✅ Задачи:*\n"
             text += f"• Всего задач: {total_tasks}\n"
             text += f"• Выполнено: {completed_tasks}\n"
             text += f"• Прогресс: {(completed_tasks/total_tasks*100) if total_tasks > 0 else 0:.1f}%\n\n"
@@ -453,12 +454,12 @@ class MaximoyBot:
                 cat = note["category"]
                 categories[cat] = categories.get(cat, 0) + 1
             
-            text += "📝 **Заметки:**\n"
+            text += "*📝 Заметки:*\n"
             text += f"• Всего заметок: {len(notes)}\n"
             text += f"• Категории: {', '.join(categories.keys())}\n\n"
         
         if not habits and not tasks and not notes:
-            text += "📊 **Данных пока нет**\n\n"
+            text += "*📊 Данных пока нет*\n\n"
             text += "Начните добавлять привычки, задачи и заметки, чтобы увидеть статистику!"
         else:
             # Мотивационное сообщение
@@ -466,6 +467,30 @@ class MaximoyBot:
             text += f"💫 *{quote}*"
         
         await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        help_text = """*📋 Доступные команды Maximoy:*
+
+*🎯 Привычки*
+/add\_habit \- Добавить новую привычку
+/dashboard \- Обзор привычек за сегодня
+
+*✅ Задачи*
+/add\_task \- Добавить новую задачу
+
+*📝 Заметки*
+/add\_note \- Добавить новую заметку
+
+*📊 Аналитика*
+/stats \- Показать статистику
+
+*🔧 Общее*
+/start \- Начать работу
+/help \- Показать эту справку
+
+*💫 Maximoy \- твой персональный ассистент продуктивности\!*"""
+        
+        await update.message.reply_text(help_text, parse_mode='MarkdownV2')
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -486,7 +511,7 @@ class MaximoyBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                "🚀 **Быстрое добавление**\n\nВыберите что хотите добавить:",
+                "🚀 *Быстрое добавление*\n\nВыберите что хотите добавить:",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
@@ -517,7 +542,7 @@ class MaximoyBot:
         application.add_handler(CommandHandler("add_task", self.add_task))
         application.add_handler(CommandHandler("add_note", self.add_note))
         application.add_handler(CommandHandler("stats", self.stats))
-        application.add_handler(CommandHandler("help", self.start))
+        application.add_handler(CommandHandler("help", self.help_command))
         
         # Обработчики кнопок
         application.add_handler(CallbackQueryHandler(self.button_handler))
