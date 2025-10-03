@@ -1,6 +1,6 @@
 import os
 import logging
-import sqlite3
+import json
 import datetime
 import random
 from datetime import timedelta
@@ -18,241 +18,180 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class MaximoyDatabase:
+class MaximoyStorage:
     def __init__(self):
-        self.db_path = "/tmp/maximoy.db"
-        self.init_database()
+        self.data_dir = "/tmp/maximoy_data"
+        os.makedirs(self.data_dir, exist_ok=True)
+        self.init_storage()
     
-    def init_database(self):
-        """Инициализация базы данных"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+    def init_storage(self):
+        """Инициализация хранилища"""
+        default_data = {
+            "habits": {},
+            "tasks": {},
+            "notes": {},
+            "users": {}
+        }
         
-        # Таблица привычек
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS habits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                name TEXT,
-                description TEXT,
-                category TEXT,
-                difficulty TEXT,
-                streak INTEGER DEFAULT 0,
-                best_streak INTEGER DEFAULT 0,
-                created_date TEXT,
-                is_active INTEGER DEFAULT 1
-            )
-        ''')
+        for filename, data in default_data.items():
+            filepath = os.path.join(self.data_dir, f"{filename}.json")
+            if not os.path.exists(filepath):
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
         
-        # Таблица прогресса привычек
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS habit_progress (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                habit_id INTEGER,
-                date TEXT,
-                completed INTEGER DEFAULT 0,
-                notes TEXT,
-                FOREIGN KEY (habit_id) REFERENCES habits (id)
-            )
-        ''')
-        
-        # Таблица задач
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                title TEXT,
-                description TEXT,
-                priority TEXT,
-                due_date TEXT,
-                completed INTEGER DEFAULT 0,
-                created_date TEXT
-            )
-        ''')
-        
-        # Таблица заметок
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                title TEXT,
-                content TEXT,
-                category TEXT,
-                created_date TEXT,
-                updated_date TEXT
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ Maximoy Database initialized")
+        logger.info("✅ Maximoy Storage initialized")
 
+    def _load_data(self, data_type):
+        """Загрузка данных из файла"""
+        filepath = os.path.join(self.data_dir, f"{data_type}.json")
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+
+    def _save_data(self, data_type, data):
+        """Сохранение данных в файл"""
+        filepath = os.path.join(self.data_dir, f"{data_type}.json")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # === ХАБИТЫ ===
     def add_habit(self, user_id, name, description="", category="general", difficulty="medium"):
-        """Добавление новой привычки"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        """Добавление привычки"""
+        habits = self._load_data("habits")
         
-        cursor.execute('''
-            INSERT INTO habits (user_id, name, description, category, difficulty, created_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, name, description, category, difficulty, datetime.datetime.now().isoformat()))
+        habit_id = str(int(datetime.datetime.now().timestamp() * 1000))
+        habits[habit_id] = {
+            "user_id": user_id,
+            "name": name,
+            "description": description,
+            "category": category,
+            "difficulty": difficulty,
+            "streak": 0,
+            "best_streak": 0,
+            "created_date": datetime.datetime.now().isoformat(),
+            "progress": {}
+        }
         
-        habit_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
+        self._save_data("habits", habits)
         logger.info(f"✅ Habit added: {name} for user {user_id}")
         return habit_id
 
     def get_user_habits(self, user_id, active_only=True):
         """Получение привычек пользователя"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        habits = self._load_data("habits")
+        user_habits = []
         
-        if active_only:
-            cursor.execute('''
-                SELECT * FROM habits 
-                WHERE user_id = ? AND is_active = 1 
-                ORDER BY streak DESC, created_date DESC
-            ''', (user_id,))
-        else:
-            cursor.execute('''
-                SELECT * FROM habits 
-                WHERE user_id = ? 
-                ORDER BY streak DESC, created_date DESC
-            ''', (user_id,))
+        for habit_id, habit in habits.items():
+            if habit["user_id"] == user_id:
+                user_habits.append((habit_id, habit))
         
-        habits = cursor.fetchall()
-        conn.close()
-        return habits
+        # Сортировка по стрику и дате создания
+        user_habits.sort(key=lambda x: (-x[1]["streak"], x[1]["created_date"]), reverse=True)
+        return user_habits
 
     def mark_habit_done(self, habit_id, notes=""):
         """Отметка выполнения привычки"""
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        habits = self._load_data("habits")
         
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Проверяем, не отмечена ли уже привычка на сегодня
-        cursor.execute('''
-            SELECT id FROM habit_progress 
-            WHERE habit_id = ? AND date = ?
-        ''', (habit_id, today))
-        
-        existing = cursor.fetchone()
-        
-        if existing:
-            cursor.execute('''
-                UPDATE habit_progress SET completed = 1, notes = ?
-                WHERE id = ?
-            ''', (notes, existing[0]))
-        else:
-            cursor.execute('''
-                INSERT INTO habit_progress (habit_id, date, completed, notes)
-                VALUES (?, ?, 1, ?)
-            ''', (habit_id, today, notes))
-        
-        # Обновляем streak
-        cursor.execute('''
-            UPDATE habits SET streak = streak + 1,
-            best_streak = CASE WHEN streak + 1 > best_streak THEN streak + 1 ELSE best_streak END
-            WHERE id = ?
-        ''', (habit_id,))
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Habit {habit_id} marked as done")
+        if habit_id in habits:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            habit = habits[habit_id]
+            
+            # Отмечаем выполнение
+            habit["progress"][today] = {
+                "completed": True,
+                "notes": notes,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+            # Обновляем стрик
+            habit["streak"] += 1
+            if habit["streak"] > habit["best_streak"]:
+                habit["best_streak"] = habit["streak"]
+            
+            self._save_data("habits", habits)
+            logger.info(f"✅ Habit {habit_id} marked as done")
 
+    # === ЗАДАЧИ ===
     def add_task(self, user_id, title, description="", priority="medium", due_date=None):
         """Добавление задачи"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        tasks = self._load_data("tasks")
         
-        cursor.execute('''
-            INSERT INTO tasks (user_id, title, description, priority, due_date, created_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, title, description, priority, due_date, datetime.datetime.now().isoformat()))
+        task_id = str(int(datetime.datetime.now().timestamp() * 1000))
+        tasks[task_id] = {
+            "user_id": user_id,
+            "title": title,
+            "description": description,
+            "priority": priority,
+            "due_date": due_date,
+            "completed": False,
+            "created_date": datetime.datetime.now().isoformat()
+        }
         
-        task_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        self._save_data("tasks", tasks)
         return task_id
 
     def get_user_tasks(self, user_id, completed=False):
         """Получение задач пользователя"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        tasks = self._load_data("tasks")
+        user_tasks = []
         
-        cursor.execute('''
-            SELECT * FROM tasks 
-            WHERE user_id = ? AND completed = ?
-            ORDER BY 
-                CASE priority 
-                    WHEN 'high' THEN 1 
-                    WHEN 'medium' THEN 2 
-                    WHEN 'low' THEN 3 
-                END,
-                created_date DESC
-        ''', (user_id, 1 if completed else 0))
+        for task_id, task in tasks.items():
+            if task["user_id"] == user_id and task["completed"] == completed:
+                user_tasks.append((task_id, task))
         
-        tasks = cursor.fetchall()
-        conn.close()
-        return tasks
+        # Сортировка по приоритету
+        priority_order = {"high": 1, "medium": 2, "low": 3}
+        user_tasks.sort(key=lambda x: (priority_order.get(x[1]["priority"], 4), x[1]["created_date"]))
+        return user_tasks
 
     def mark_task_completed(self, task_id):
         """Отметка задачи как выполненной"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        tasks = self._load_data("tasks")
         
-        cursor.execute('''
-            UPDATE tasks SET completed = 1 WHERE id = ?
-        ''', (task_id,))
-        
-        conn.commit()
-        conn.close()
+        if task_id in tasks:
+            tasks[task_id]["completed"] = True
+            self._save_data("tasks", tasks)
 
+    # === ЗАМЕТКИ ===
     def add_note(self, user_id, title, content, category="general"):
         """Добавление заметки"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        notes = self._load_data("notes")
         
+        note_id = str(int(datetime.datetime.now().timestamp() * 1000))
         now = datetime.datetime.now().isoformat()
-        cursor.execute('''
-            INSERT INTO notes (user_id, title, content, category, created_date, updated_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, title, content, category, now, now))
+        notes[note_id] = {
+            "user_id": user_id,
+            "title": title,
+            "content": content,
+            "category": category,
+            "created_date": now,
+            "updated_date": now
+        }
         
-        note_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        self._save_data("notes", notes)
         return note_id
 
     def get_user_notes(self, user_id, category=None):
         """Получение заметок пользователя"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        notes = self._load_data("notes")
+        user_notes = []
         
-        if category:
-            cursor.execute('''
-                SELECT * FROM notes 
-                WHERE user_id = ? AND category = ?
-                ORDER BY updated_date DESC
-            ''', (user_id, category))
-        else:
-            cursor.execute('''
-                SELECT * FROM notes 
-                WHERE user_id = ?
-                ORDER BY updated_date DESC
-            ''', (user_id,))
+        for note_id, note in notes.items():
+            if note["user_id"] == user_id:
+                if category is None or note["category"] == category:
+                    user_notes.append((note_id, note))
         
-        notes = cursor.fetchall()
-        conn.close()
-        return notes
+        # Сортировка по дате обновления
+        user_notes.sort(key=lambda x: x[1]["updated_date"], reverse=True)
+        return user_notes
 
 class MaximoyBot:
     def __init__(self):
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.db = MaximoyDatabase()
+        self.storage = MaximoyStorage()
         self.motivational_quotes = [
             "Каждый день - это новый шанс стать лучше! 🌟",
             "Маленькие шаги приводят к большим результатам! 🚶‍♂️",
@@ -261,7 +200,9 @@ class MaximoyBot:
             "Помни: даже самые великие дела начинались с первого шага! 🎯",
             "Успех - это сумма маленьких усилий, повторяющихся изо дня в день! 📈",
             "Ты ближе к своей цели, чем был вчера! 🎉",
-            "Не откладывай на завтра то, что можно сделать сегодня! ⏰"
+            "Не откладывай на завтра то, что можно сделать сегодня! ⏰",
+            "Твоя продуктивность - это твоя суперсила! 🦸‍♂️",
+            "Каждая выполненная задача приближает тебя к успеху! 🎯"
         ]
         logger.info("🤖 Maximoy Bot initialized")
 
@@ -317,8 +258,8 @@ class MaximoyBot:
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         
         # Получаем данные
-        habits = self.db.get_user_habits(user_id)
-        tasks = self.db.get_user_tasks(user_id, completed=False)
+        habits = self.storage.get_user_habits(user_id)
+        tasks = self.storage.get_user_tasks(user_id, completed=False)
         
         text = f"📊 **Дашборд Maximoy** • {today}\n\n"
         
@@ -326,18 +267,9 @@ class MaximoyBot:
         completed_today = 0
         total_habits = len(habits)
         
-        for habit in habits:
-            habit_id = habit[0]
-            # Простая проверка выполнения сегодня
-            conn = sqlite3.connect(self.db.db_path)
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT COUNT(*) FROM habit_progress 
-                WHERE habit_id = ? AND date = ? AND completed = 1
-            ''', (habit_id, today))
-            if cursor.fetchone()[0] > 0:
+        for habit_id, habit in habits:
+            if today in habit.get("progress", {}) and habit["progress"][today].get("completed"):
                 completed_today += 1
-            conn.close()
         
         habit_percentage = (completed_today / total_habits * 100) if total_habits > 0 else 0
         
@@ -345,9 +277,9 @@ class MaximoyBot:
         text += f"{self._create_progress_bar(habit_percentage)} {habit_percentage:.0f}%\n\n"
         
         # Активные задачи
-        high_priority = sum(1 for task in tasks if task[4] == 'high')
-        medium_priority = sum(1 for task in tasks if task[4] == 'medium')
-        low_priority = sum(1 for task in tasks if task[4] == 'low')
+        high_priority = sum(1 for task_id, task in tasks if task["priority"] == 'high')
+        medium_priority = sum(1 for task_id, task in tasks if task["priority"] == 'medium')
+        low_priority = sum(1 for task_id, task in tasks if task["priority"] == 'low')
         
         text += f"✅ **Активные задачи:** {len(tasks)}\n"
         text += f"   🔴 Высокий: {high_priority} | 🟡 Средний: {medium_priority} | 🟢 Низкий: {low_priority}\n\n"
@@ -357,14 +289,24 @@ class MaximoyBot:
         text += f"💫 *{quote}*"
         
         # Кнопки быстрых действий
-        keyboard = [
-            [InlineKeyboardButton("✅ Отметить привычки", callback_data="mark_habits")],
+        keyboard = []
+        for habit_id, habit in habits[:3]:  # Первые 3 привычки
+            if today not in habit.get("progress", {}) or not habit["progress"][today].get("completed"):
+                keyboard.append([InlineKeyboardButton(
+                    f"✅ {habit['name']}", 
+                    callback_data=f"mark_habit:{habit_id}"
+                )])
+        
+        if not keyboard:
+            keyboard.append([InlineKeyboardButton("🎉 Все привычки выполнены!", callback_data="celebrate")])
+        
+        keyboard.extend([
             [InlineKeyboardButton("📋 Список задач", callback_data="show_tasks")],
             [InlineKeyboardButton("📈 Статистика", callback_data="show_stats")],
             [InlineKeyboardButton("🎯 Добавить новое", callback_data="quick_add")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        ])
         
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
     async def add_habit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -383,14 +325,14 @@ class MaximoyBot:
             return
         
         text = " ".join(context.args)
-        parts = text.split("|")
+        parts = [part.strip() for part in text.split("|")]
         
-        name = parts[0].strip()
-        description = parts[1].strip() if len(parts) > 1 else ""
-        category = parts[2].strip() if len(parts) > 2 else "general"
-        difficulty = parts[3].strip() if len(parts) > 3 else "medium"
+        name = parts[0]
+        description = parts[1] if len(parts) > 1 else ""
+        category = parts[2] if len(parts) > 2 else "general"
+        difficulty = parts[3] if len(parts) > 3 else "medium"
         
-        habit_id = self.db.add_habit(update.effective_user.id, name, description, category, difficulty)
+        habit_id = self.storage.add_habit(update.effective_user.id, name, description, category, difficulty)
         
         await update.message.reply_text(
             f"✅ **Привычка добавлена!**\n\n"
@@ -418,12 +360,12 @@ class MaximoyBot:
             return
         
         text = " ".join(context.args)
-        parts = text.split("|")
+        parts = [part.strip() for part in text.split("|")]
         
-        title = parts[0].strip()
-        description = parts[1].strip() if len(parts) > 1 else ""
-        priority = parts[2].strip() if len(parts) > 2 else "medium"
-        due_date = parts[3].strip() if len(parts) > 3 else None
+        title = parts[0]
+        description = parts[1] if len(parts) > 1 else ""
+        priority = parts[2] if len(parts) > 2 else "medium"
+        due_date = parts[3] if len(parts) > 3 else None
         
         # Обработка относительных дат
         if due_date == 'сегодня':
@@ -431,7 +373,7 @@ class MaximoyBot:
         elif due_date == 'завтра':
             due_date = (datetime.datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        task_id = self.db.add_task(update.effective_user.id, title, description, priority, due_date)
+        task_id = self.storage.add_task(update.effective_user.id, title, description, priority, due_date)
         
         await update.message.reply_text(
             f"✅ **Задача добавлена!**\n\n"
@@ -458,36 +400,36 @@ class MaximoyBot:
             return
         
         text = " ".join(context.args)
-        parts = text.split("|")
+        parts = [part.strip() for part in text.split("|")]
         
-        title = parts[0].strip()
-        content = parts[1].strip() if len(parts) > 1 else ""
-        category = parts[2].strip() if len(parts) > 2 else "general"
+        title = parts[0]
+        content = parts[1] if len(parts) > 1 else ""
+        category = parts[2] if len(parts) > 2 else "general"
         
-        note_id = self.db.add_note(update.effective_user.id, title, content, category)
+        note_id = self.storage.add_note(update.effective_user.id, title, content, category)
         
         await update.message.reply_text(
             f"📝 **Заметка сохранена!**\n\n"
             f"**Заголовок:** {title}\n"
             f"**Категория:** {category}\n"
             f"**Содержание:** {content if content else 'Пусто'}\n\n"
-            f"Заметка №{note_id} успешно сохранена! 💾",
+            f"Заметка успешно сохранена! 💾",
             parse_mode='Markdown'
         )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         
-        habits = self.db.get_user_habits(user_id)
-        tasks = self.db.get_user_tasks(user_id)
-        notes = self.db.get_user_notes(user_id)
+        habits = self.storage.get_user_habits(user_id)
+        tasks = self.storage.get_user_tasks(user_id)
+        notes = self.storage.get_user_notes(user_id)
         
         text = "📈 **Статистика Maximoy**\n\n"
         
         # Статистика привычек
         if habits:
-            total_streak = sum(habit[6] for habit in habits)
-            best_streak = max((habit[7] for habit in habits), default=0)
+            total_streak = sum(habit[1]["streak"] for habit in habits)
+            best_streak = max((habit[1]["best_streak"] for habit in habits), default=0)
             
             text += "🎯 **Привычки:**\n"
             text += f"• Всего привычек: {len(habits)}\n"
@@ -496,7 +438,7 @@ class MaximoyBot:
         
         # Статистика задач
         if tasks:
-            completed_tasks = sum(1 for task in tasks if task[6])
+            completed_tasks = sum(1 for task_id, task in tasks if task["completed"])
             total_tasks = len(tasks)
             
             text += "✅ **Задачи:**\n"
@@ -507,8 +449,8 @@ class MaximoyBot:
         # Статистика заметок
         if notes:
             categories = {}
-            for note in notes:
-                cat = note[4]
+            for note_id, note in notes:
+                cat = note["category"]
                 categories[cat] = categories.get(cat, 0) + 1
             
             text += "📝 **Заметки:**\n"
@@ -529,11 +471,13 @@ class MaximoyBot:
         query = update.callback_query
         await query.answer()
         
-        if query.data == "dashboard":
+        data = query.data
+        
+        if data == "dashboard":
             await self.dashboard(query, context)
-        elif query.data == "show_stats":
+        elif data == "show_stats":
             await self.stats(query, context)
-        elif query.data == "quick_add":
+        elif data == "quick_add":
             keyboard = [
                 [InlineKeyboardButton("🎯 Привычка", callback_data="quick_habit")],
                 [InlineKeyboardButton("✅ Задача", callback_data="quick_task")],
@@ -546,6 +490,12 @@ class MaximoyBot:
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
+        elif data.startswith("mark_habit:"):
+            habit_id = data.split(":")[1]
+            self.storage.mark_habit_done(habit_id)
+            await query.edit_message_text("✅ Привычка отмечена как выполненная! 🎉", parse_mode='Markdown')
+        elif data == "celebrate":
+            await query.edit_message_text("🎉 Отлично! Все привычки на сегодня выполнены! Ты просто супер! 🌟", parse_mode='Markdown')
 
     def _create_progress_bar(self, percentage, length=10):
         """Создает текстовый прогресс-бар"""
